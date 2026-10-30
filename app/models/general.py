@@ -63,6 +63,7 @@ class Interaction(Base):
 
     id:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
     tenant_id:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("tenant.id"), nullable=False)
+    created_by:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("user.id"), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(
     DateTime(timezone=True), nullable=False)
     ingested_at: Mapped[datetime] = mapped_column(

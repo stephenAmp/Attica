@@ -1,6 +1,5 @@
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, AwareDatetime
-from datetime import datetime
 from typing import Dict, Any, Literal
 
 
@@ -9,6 +8,8 @@ class InteractionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID;
+    created_by: UUID;
+    tenant_id: UUID;
     status: str;
     scores: Dict[str, Any];
     model: str;
@@ -24,15 +25,15 @@ class InteractionRead(BaseModel):
 
 
 class InteractionCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid");
 
     occurred_at: AwareDatetime;
-    status: Literal["success", "error"]
-    model: str = Field(min_length=1, max_length=255)
-    latency_ms: int = Field(ge=0)
-    input_token: int = Field(ge=0)
-    output_token: int = Field(ge=0)
+    status: Literal["success", "error"];
+    model: str = Field(min_length=1, max_length=255);
+    latency_ms: int = Field(ge=0);
+    input_token: int = Field(ge=0);
+    output_token: int = Field(ge=0);
 
-    input: str
-    output: str | None = None
-    schema_version: Literal[1] = 1
+    input: str;
+    output: str | None = None;
+    schema_version: Literal[1] = 1;
