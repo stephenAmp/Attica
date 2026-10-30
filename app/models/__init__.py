@@ -1,0 +1,1 @@
+from app.models.general import  Tenant, User, UserTenants, Interaction, Permission, RolePermission, Role
