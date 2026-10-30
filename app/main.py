@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.api.auth import router as auth_router
 from app.api.health import router
 from app.api.tenant import router as tenant_router
+from app.api.interaction import router as interaction_router
 from app.core.config import Settings
 
 
@@ -29,3 +30,4 @@ app.include_router(router)
 app.include_router(auth_router)
 
 app.include_router(tenant_router)
+app.include_router(interaction_router)

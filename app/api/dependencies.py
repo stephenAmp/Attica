@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.general import User, UserTenants
+from app.models.general import User, UserTenants, Role
 from app.storage.postgres import get_session
 from app.utils.token import decode_token
 
@@ -56,3 +56,29 @@ async def get_tenant_membership(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found"
         )
     return membership
+
+
+def required_role_check(allowed_roles: set[str]):
+
+    async def dependency(
+        membership: Annotated[UserTenants, Depends(get_tenant_membership)],
+        session: Annotated[AsyncSession, Depends(get_session)],
+    ) -> Role:
+
+        role = await session.get(Role, membership.role_id)
+
+        if role is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Role not found",
+            )
+
+        if role.name not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+
+        return role
+
+    return dependency

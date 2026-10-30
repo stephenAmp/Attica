@@ -73,6 +73,6 @@ class Interaction(Base):
     input_token: Mapped[int] = mapped_column(Integer, nullable=False)
     output_token: Mapped[int] = mapped_column(Integer, nullable=False)
     input: Mapped[str]  = mapped_column(Text, nullable=False)
-    output: Mapped[str] = mapped_column(Text, nullable=False)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
     scores: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
