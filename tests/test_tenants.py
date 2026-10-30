@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.main import app
-from app.models.general import Tenant, User
+from app.models.general import Tenant, User, UserTenants
 from app.storage.postgres import get_session
 from app.utils.token import create_access_token
 
@@ -143,3 +143,83 @@ def test_request_cannot_choose_owner_or_role(tenant_client, extra):
     client, db, *_ = tenant_client
     assert client.post("/tenants", json={**PAYLOAD, **extra}).status_code == 422
     db.execute.assert_not_awaited()
+
+
+def configure_member_lookup(db, user, tenant, admin_id):
+    async def lookup(model, key):
+        if model is User and key == user.id:
+            return user
+        if model is UserTenants and key == {"user_id": user.id, "tenant_id": tenant.id}:
+            return UserTenants(user_id=user.id, tenant_id=tenant.id, role_id=admin_id)
+        if model is Tenant and key == tenant.id:
+            return tenant
+        return None
+
+    db.get.side_effect = lookup
+
+
+def test_member_can_read_their_tenant(tenant_client):
+    client, db, user, tenant, admin_id = tenant_client
+    configure_member_lookup(db, user, tenant, admin_id)
+    response = client.get(f"/tenants/{tenant.id}")
+    assert response.status_code == 200
+    assert response.json()["id"] == str(tenant.id)
+    assert db.get.await_count == 3
+    db.commit.assert_not_awaited()
+
+
+def test_membership_in_one_tenant_does_not_allow_another(tenant_client):
+    client, db, user, tenant, admin_id = tenant_client
+    configure_member_lookup(db, user, tenant, admin_id)
+    other_tenant = uuid4()
+    response = client.get(f"/tenants/{other_tenant}")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Tenant not found"}
+    assert not any(call.args[0] is Tenant for call in db.get.await_args_list)
+
+
+def test_another_users_membership_does_not_grant_access(tenant_client):
+    client, db, user, tenant, admin_id = tenant_client
+    configure_member_lookup(db, user, tenant, admin_id)
+    stranger = User(id=uuid4(), is_active=True)
+    original_lookup = db.get.side_effect
+
+    async def lookup(model, key):
+        if model is User and key == stranger.id:
+            return stranger
+        return await original_lookup(model, key)
+
+    db.get.side_effect = lookup
+    client.headers["Authorization"] = "Bearer " + create_access_token(
+        str(stranger.id), True
+    )
+    assert client.get(f"/tenants/{tenant.id}").status_code == 404
+    assert not any(call.args[0] is Tenant for call in db.get.await_args_list)
+
+
+def test_removed_membership_is_rechecked_with_same_token(tenant_client):
+    client, db, user, tenant, admin_id = tenant_client
+    configure_member_lookup(db, user, tenant, admin_id)
+    assert client.get(f"/tenants/{tenant.id}").status_code == 200
+    original_lookup = db.get.side_effect
+
+    async def lookup(model, key):
+        if model is UserTenants:
+            return None
+        return await original_lookup(model, key)
+
+    db.get.side_effect = lookup
+    assert client.get(f"/tenants/{tenant.id}").status_code == 404
+
+
+def test_tenant_read_requires_authentication(tenant_client):
+    client, db, _, tenant, _ = tenant_client
+    del client.headers["Authorization"]
+    assert client.get(f"/tenants/{tenant.id}").status_code == 401
+    db.get.assert_not_awaited()
+
+
+def test_tenant_id_must_be_uuid(tenant_client):
+    client, db, *_ = tenant_client
+    assert client.get("/tenants/not-a-uuid").status_code == 422
+    assert not any(call.args[0] is UserTenants for call in db.get.await_args_list)

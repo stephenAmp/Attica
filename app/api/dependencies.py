@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.general import User
+from app.models.general import User, UserTenants
 from app.storage.postgres import get_session
 from app.utils.token import decode_token
 
@@ -40,3 +40,19 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive"
         )
     return user
+
+
+async def get_tenant_membership(
+    tenant_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> UserTenants:
+    membership = await session.get(
+        UserTenants, {"user_id": current_user.id, "tenant_id": tenant_id}
+    )
+    if membership is None:
+        # Use the same response for nonexistent and inaccessible tenants.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found"
+        )
+    return membership

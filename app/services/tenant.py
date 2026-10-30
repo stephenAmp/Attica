@@ -53,3 +53,11 @@ class TenantService:
         except Exception:
             await self.db.rollback()
             raise
+
+    async def getTenant(self, tenant_id: UUID) -> TenantRead:
+        tenant = await self.db.get(Tenant, tenant_id)
+        if tenant is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found"
+            )
+        return TenantRead.model_validate(tenant)
