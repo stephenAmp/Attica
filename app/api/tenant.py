@@ -18,7 +18,14 @@ async def create_tenant(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TenantRead:
-    return await TenantService(session).createTenant(data, creator_id=current_user.id)
+    try:
+        response =  await TenantService(session).createTenant(data, creator_id=current_user.id)
+        await session.commit()
+        return response
+
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.get("/{tenant_id}", response_model=TenantRead)

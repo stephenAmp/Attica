@@ -16,7 +16,8 @@ async def register(
     data: UserCreate,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> UserRead:
-    return await AuthService(session).register(data)
+    async with session.begin():
+        return await AuthService(session).register(data)
 
 
 @router.post("/login", response_model=LoginResponse)

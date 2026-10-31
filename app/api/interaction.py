@@ -21,7 +21,14 @@ async def create_interaction(
     _role: Annotated[Role, Depends(required_role_check({"admin","developer"}))],
     session: Annotated[AsyncSession, Depends(get_session)],
 )->InteractionRead:
-    return await InteractionService(session).createInteraction(data, membership.tenant_id, current_user.id)
+    try:
+        response = await InteractionService(session).createInteraction(data, membership.tenant_id, current_user.id)
+        await session.commit()
+        return response
+    
+    except Exception:
+        await session.rollback()
+        raise
 
 @router.get("/{interaction_id}", response_model=InteractionRead, status_code=200)
 async def get_interaction_by_id(

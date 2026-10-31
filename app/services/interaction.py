@@ -11,9 +11,8 @@ class InteractionService:
     def __init__(self, db:AsyncSession):
         self.db = db
 
-    async def createInteraction(self, data:InteractionCreate, tenant_id: str, user_id: str) -> InteractionRead:
-        try:
-            statement = (
+    async def createInteraction(self, data:InteractionCreate, tenant_id: UUID, user_id: UUID) -> InteractionRead:
+        statement = (
                 insert(Interaction)
                 .values(
                     tenant_id = tenant_id,
@@ -31,15 +30,12 @@ class InteractionService:
                 .returning(Interaction)
             )
 
-            interaction = (await self.db.execute(statement)).scalar_one()
-            response = InteractionRead.model_validate(interaction)
-            await self.db.commit()
-            return response
+        interaction = (await self.db.execute(statement)).scalar_one()
+        response = InteractionRead.model_validate(interaction)
+
+        return response
             
 
-        except Exception:
-            await self.db.rollback()
-            raise
 
     async def getInteractionById(self, interaction_id: UUID, tenant_id: UUID )->InteractionRead:
         statement = (

@@ -41,7 +41,6 @@ class AuthService:
             )
 
         response = UserRead.model_validate(user)
-        await self.db.commit()
         return response
 
     async def login(self, data: UserLogin) -> LoginResponse:
