@@ -5,17 +5,20 @@ from app.models.general import Interaction
 from sqlalchemy.dialects.postgresql import insert
 from fastapi import HTTPException, status
 from sqlalchemy import select
-
+from app.utils.security import hash_payload
 
 class InteractionService:
     def __init__(self, db:AsyncSession):
         self.db = db
 
-    async def createInteraction(self, data:InteractionCreate, tenant_id: UUID, user_id: UUID) -> InteractionRead:
+    async def createInteraction(self, data:InteractionCreate, idempotency_key: str, tenant_id: UUID, user_id: UUID) -> InteractionRead:
+        payload_hash = hash_payload(data)
         statement = (
                 insert(Interaction)
                 .values(
                     tenant_id = tenant_id,
+                    idempotency_key = idempotency_key,
+                    payload_hash = payload_hash,
                     created_by = user_id,
                     occurred_at = data.occurred_at,
                     status = data.status,
@@ -27,13 +30,25 @@ class InteractionService:
                     output = data.output,
                     schema_version = data.schema_version   
                 )
+                .on_conflict_do_nothing(constraint="uq_tenant_idempotency_key")
                 .returning(Interaction)
             )
 
-        interaction = (await self.db.execute(statement)).scalar_one()
-        response = InteractionRead.model_validate(interaction)
+        interaction = (await self.db.execute(statement)).scalar_one_or_none()
+        if interaction is None:
+            statement = select(Interaction).where(
+                Interaction.tenant_id == tenant_id,
+                Interaction.idempotency_key == idempotency_key,
+            )
 
-        return response
+            existing = (await self.db.execute(statement)).scalar_one()
+
+            if existing.payload_hash != payload_hash:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail = "Idempotency key is already used with different payload")
+            
+            return InteractionRead.model_validate(existing)
+        return InteractionRead.model_validate(interaction)
+
             
 
 

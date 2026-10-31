@@ -1,6 +1,6 @@
 import uuid as uuid_lib
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
-from sqlalchemy import Uuid, ForeignKey, DateTime, String, Integer, Text, Boolean
+from sqlalchemy import Uuid, ForeignKey, DateTime, String, Integer, Text, Boolean, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime, timezone
 
@@ -62,6 +62,9 @@ class Interaction(Base):
     __tablename__ = "interaction"
 
     id:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
     tenant_id:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("tenant.id"), nullable=False)
     created_by:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("user.id"), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(
@@ -77,3 +80,11 @@ class Interaction(Base):
     output: Mapped[str | None] = mapped_column(Text, nullable=True)
     scores: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", 
+            "idempotency_key",
+            name="uq_tenant_idempotency_key"
+        ),
+    )

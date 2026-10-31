@@ -1,6 +1,6 @@
 from uuid import UUID
 from typing import Annotated
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.storage.postgres import get_session
 from app.api.dependencies import get_current_user, get_tenant_membership, required_role_check
@@ -16,13 +16,14 @@ router = APIRouter(prefix="/tenants/{tenant_id}/interactions", tags=["interactio
 @router.post("", response_model=InteractionRead, status_code=status.HTTP_201_CREATED)
 async def create_interaction(
     data: InteractionCreate,
+    idempotency_key: Annotated[str, Header(min_length=1, max_length=255)],
     current_user:Annotated[User, Depends(get_current_user)],
     membership: Annotated[UserTenants, Depends(get_tenant_membership)],
     _role: Annotated[Role, Depends(required_role_check({"admin","developer"}))],
     session: Annotated[AsyncSession, Depends(get_session)],
 )->InteractionRead:
     try:
-        response = await InteractionService(session).createInteraction(data, membership.tenant_id, current_user.id)
+        response = await InteractionService(session).createInteraction(data, idempotency_key, membership.tenant_id, current_user.id)
         await session.commit()
         return response
     
