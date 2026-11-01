@@ -155,7 +155,7 @@ class RateLimiter:
         if key not in request_counters:
             request_counters[key] = {"timestamp": current_time, "count": 1}
         else:
-            if current_time - request_counters[key]["timestamp"] > self.time_window:
+            if current_time - request_counters[key]["timestamp"] >= self.time_window:
                 request_counters[key] = {"timestamp": current_time, "count": 1}
             elif request_counters[key]["count"] >= self.requests_limit:
                 retry_after = max(
@@ -171,6 +171,6 @@ class RateLimiter:
                 request_counters[key]["count"] += 1
         # Clean up expired entries
         for k in list(request_counters.keys()):
-            if current_time - request_counters[k]["timestamp"] > self.time_window:
+            if current_time - request_counters[k]["timestamp"] >= self.time_window:
                 request_counters.pop(k)
         return True
