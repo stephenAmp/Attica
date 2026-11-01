@@ -1,7 +1,8 @@
+import time
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,3 +83,94 @@ def required_role_check(allowed_roles: set[str]):
         return role
 
     return dependency
+
+
+tenant_request_counters = {}
+class TenantSpecificRateLimiter:
+    def __init__(self, requests_limit: int, time_window: int):
+        self.requests_limit = requests_limit
+        self.time_window = time_window
+
+    async def __call__(
+        self,
+        request: Request,
+        membership: Annotated[UserTenants, Depends(get_tenant_membership)],
+    ):
+        tenant_id = membership.tenant_id
+        route_path = request.scope["route"].path
+        current_time = int(time.time())
+
+        key = f"{tenant_id}:{route_path}"
+
+        if key not in tenant_request_counters:
+            tenant_request_counters[key] = {
+                "timestamp": current_time,
+                "count": 1,
+            }
+        else:
+            counter = tenant_request_counters[key]
+
+            if current_time - counter["timestamp"] >= self.time_window:
+                tenant_request_counters[key] = {
+                    "timestamp": current_time,
+                    "count": 1,
+                }
+
+            elif counter["count"] >= self.requests_limit:
+                retry_after = max(
+                    1,
+                    self.time_window - (current_time - counter["timestamp"]),
+                )
+
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too Many Requests",
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+            else:
+                counter["count"] += 1
+
+        # Clean up expired entries
+        for k in list(tenant_request_counters.keys()):
+            if (
+                current_time - tenant_request_counters[k]["timestamp"]
+                >= self.time_window
+            ):
+                tenant_request_counters.pop(k)
+
+        return True
+
+request_counters = {}
+class RateLimiter:
+    def __init__(self, requests_limit: int, time_window: int):
+        self.requests_limit = requests_limit
+        self.time_window = time_window
+        
+    async def __call__(self, request: Request):
+        client_ip = request.client.host
+        route_path = request.url.path
+        current_time = int(time.time())
+        key = f"{client_ip}:{route_path}"
+        if key not in request_counters:
+            request_counters[key] = {"timestamp": current_time, "count": 1}
+        else:
+            if current_time - request_counters[key]["timestamp"] > self.time_window:
+                request_counters[key] = {"timestamp": current_time, "count": 1}
+            elif request_counters[key]["count"] >= self.requests_limit:
+                retry_after = max(
+                    1,
+                    self.time_window - (current_time - request_counters[key]["timestamp"]),
+                )
+                raise HTTPException(
+                    status_code=429, 
+                    detail="Too Many Requests", 
+                    headers={"Retry-After": str(retry_after)},
+                )
+            else:
+                request_counters[key]["count"] += 1
+        # Clean up expired entries
+        for k in list(request_counters.keys()):
+            if current_time - request_counters[k]["timestamp"] > self.time_window:
+                request_counters.pop(k)
+        return True

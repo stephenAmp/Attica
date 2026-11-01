@@ -4,13 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.dependencies import RateLimiter
 
 from app.storage.postgres import get_session
 
 router = APIRouter(tags=["health"])
 
+limiter = RateLimiter(5, 60)
 
-@router.get("/health/live")
+@router.get("/health/live", dependencies=[Depends(limiter)])
 async def live() -> dict[str, str]:
     return {"status": "ok"}
 
