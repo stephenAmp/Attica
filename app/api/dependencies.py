@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.general import User, UserTenants, Role
 from app.storage.postgres import get_session
 from app.utils.token import decode_token
+import structlog
+
+from structlog.contextvars import bind_contextvars
 
 # Login accepts JSON; Swagger accepts the returned bearer token directly.
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -40,6 +43,8 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive"
         )
+
+    bind_contextvars(user_id=str(user.id))
     return user
 
 
@@ -56,6 +61,8 @@ async def get_tenant_membership(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found"
         )
+
+    bind_contextvars(tenant_id=str(membership.tenant_id))
     return membership
 
 

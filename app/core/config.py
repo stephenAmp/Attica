@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: PostgresDsn
+    app_env: str
     acces_token_expiry_mins: int = Field(validation_alias="access_token_expiry_mins")
     refresh_token_expiry_days: int
     jwt_secret_key: str

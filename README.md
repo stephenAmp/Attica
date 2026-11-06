@@ -13,7 +13,7 @@ cp .env.example .env
 uv sync --locked
 docker compose up -d --wait postgres
 uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --no-access-log
 ```
 
 Open [Swagger UI](http://127.0.0.1:8000/docs).

@@ -46,8 +46,8 @@ class InteractionService:
             if existing.payload_hash != payload_hash:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail = "Idempotency key is already used with different payload")
             
-            return InteractionRead.model_validate(existing)
-        return InteractionRead.model_validate(interaction)
+            return InteractionRead.model_validate(existing), "duplicate"
+        return InteractionRead.model_validate(interaction), "created"
 
             
 
