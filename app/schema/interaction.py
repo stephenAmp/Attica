@@ -37,3 +37,21 @@ class InteractionCreate(BaseModel):
     input: str;
     output: str | None = None;
     schema_version: Literal[1] = 1;
+
+
+class InteractionEvent(BaseModel):
+    interaction_id: UUID;
+    tenant_id: UUID;
+    schema_version: int;
+    occurred_at: AwareDatetime;
+    ingested_at: AwareDatetime;
+
+    event_id: UUID;
+    status: str;
+    scores: Dict[str, Any];
+    model: str;
+    latency_ms: int;
+    input_token: int;
+    output_token: int;
+    input: str ;
+    output: str | None;

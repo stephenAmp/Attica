@@ -1,7 +1,8 @@
-import uuid as UUID
+import uuid as uuid_lib
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schema.interaction import InteractionCreate, InteractionRead
-from app.models.general import Interaction
+from app.schema.interaction import InteractionCreate, InteractionRead, InteractionEvent
+from app.models.general import Interaction, OutboxEvent
 from sqlalchemy.dialects.postgresql import insert
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -47,7 +48,26 @@ class InteractionService:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail = "Idempotency key is already used with different payload")
             
             return InteractionRead.model_validate(existing), "duplicate"
-        return InteractionRead.model_validate(interaction), "created"
+        
+        
+        response = InteractionRead.model_validate(interaction)
+        event_id = uuid_lib.uuid4()
+        payload = InteractionEvent(
+            event_id=event_id,
+            interaction_id=interaction.id,
+            **response.model_dump(exclude={"id", "created_by"}),
+        )
+        event = OutboxEvent(
+            id=event_id,
+            interaction_id=interaction.id,
+            tenant_id=interaction.tenant_id,
+            event_type="interaction created",
+            payload=payload.model_dump(mode="json"),
+        )
+        self.db.add(event)
+
+        return response, "created"
+    
 
             
 

@@ -88,3 +88,17 @@ class Interaction(Base):
             name="uq_tenant_idempotency_key"
         ),
     )
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_event"
+
+    id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True,  default = uuid_lib.uuid4)
+    interaction_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("interaction.id"), nullable=False)
+    tenant_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("tenant.id"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default = lambda: datetime.now(timezone.utc))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    
