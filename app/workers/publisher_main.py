@@ -2,10 +2,11 @@ import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from app.core.config import Settings
 from app.workers.outbox_publisher import publish_outbox
-
+from app.core.logging import configure_logging
 
 async def main():
     settings = Settings()
+    configure_logging()
 
     engine = create_async_engine(
         str(settings.database_url),

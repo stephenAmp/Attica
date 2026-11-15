@@ -102,3 +102,26 @@ rejected when invalid. Kafka, ClickHouse, scoring, and workers come later.
 
 Implementation references: [SQLAlchemy async sessions](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
 and [Alembic async migrations](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic).
+
+
+## Kafka workers
+
+Apply the reviewed migrations before starting workers (`uv run alembic upgrade head`).
+Start Kafka and initialize the topic with `docker compose up -d kafka kafka-init`.
+Run each worker in a separate terminal:
+
+```sh
+uv run python -m app.workers.publisher_main
+uv run python -m app.workers.consumer_main
+```
+
+The consumer validates schema version 1 and verifies that the interaction belongs
+to the event tenant. It writes one `processed_events` summary per event ID:
+total tokens, latency, error status, empty-response flag, and processing time.
+The summary and deduplication marker are the same row, committed together before
+the Kafka offset advances. These are basic measurements, not quality scores.
+
+Repeated delivery leaves the original summary unchanged. Processing failures stop
+the consumer without committing the offset; restart it after resolving the cause.
+Automatic consumer retries and a dead-letter topic are still future work. The
+publisher retries failed batches; delivery remains at least once.

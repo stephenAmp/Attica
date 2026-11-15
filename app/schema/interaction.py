@@ -42,16 +42,15 @@ class InteractionCreate(BaseModel):
 class InteractionEvent(BaseModel):
     interaction_id: UUID;
     tenant_id: UUID;
-    schema_version: int;
+    schema_version: Literal[1];
     occurred_at: AwareDatetime;
     ingested_at: AwareDatetime;
-
     event_id: UUID;
-    status: str;
+    status: Literal["success", "error"];
     scores: Dict[str, Any];
     model: str;
-    latency_ms: int;
-    input_token: int;
-    output_token: int;
+    latency_ms: int = Field(ge=0);
+    input_token: int = Field(ge=0);
+    output_token: int = Field(ge=0);
     input: str ;
     output: str | None;

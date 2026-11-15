@@ -8,7 +8,7 @@ from app.schema.interaction import InteractionRead, InteractionCreate
 from app.models.general import User, UserTenants, Role
 from app.services.interaction import InteractionService
 from fastapi import Path
-import structlog
+from app.core.logging import get_logger
 from sqlalchemy.exc import SQLAlchemyError
 
 from structlog.contextvars import bind_contextvars
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/tenants/{tenant_id}/interactions", tags=["interactio
 
 limiter = TenantSpecificRateLimiter(5, 60)
 
-logger = structlog.get_logger()
+logger = get_logger()
 
 @router.post("", response_model=InteractionRead, dependencies=[Depends(limiter)], status_code=status.HTTP_201_CREATED)
 async def create_interaction(

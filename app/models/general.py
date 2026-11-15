@@ -101,4 +101,15 @@ class OutboxEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default = lambda: datetime.now(timezone.utc))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    
+
+class ProcessedEvent(Base):
+    __tablename__ = "processed_events"
+
+    event_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    interaction_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("interaction.id"), nullable=False)
+    tenant_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("tenant.id"), nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_error: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    output_empty: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))

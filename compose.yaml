@@ -39,7 +39,8 @@ services:
         condition: service_healthy 
 
     entrypoint: ["/bin/sh", "-c"]
-    command: |
+    command:
+      - |
         set -e
 
         echo "Waiting for Kafka..."

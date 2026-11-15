@@ -5,9 +5,9 @@ from aiokafka import AIOKafkaProducer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from app.models.general import OutboxEvent
-import structlog
+from app.core.logging import get_logger
 
-logger = structlog.get_logger()
+logger = get_logger()
 
 async def publish_outbox(
     session_factory: async_sessionmaker[AsyncSession],
@@ -46,11 +46,11 @@ async def publish_outbox(
                             )
                             event.published_at = datetime.now(timezone.utc)
 
-                    await asyncio.sleep(5)
+                await asyncio.sleep(5)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.info("Outbox publishing failed. Retrying in 5 seconds.")
+                logger.exception("Outbox publishing failed. Retrying in 5 seconds.")
                 await asyncio.sleep(5)
 
     finally:
