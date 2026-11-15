@@ -121,7 +121,23 @@ total tokens, latency, error status, empty-response flag, and processing time.
 The summary and deduplication marker are the same row, committed together before
 the Kafka offset advances. These are basic measurements, not quality scores.
 
-Repeated delivery leaves the original summary unchanged. Processing failures stop
-the consumer without committing the offset; restart it after resolving the cause.
-Automatic consumer retries and a dead-letter topic are still future work. The
-publisher retries failed batches; delivery remains at least once.
+Repeated delivery leaves the original summary unchanged. Processing gets three
+attempts per delivery, with 1- and 2-second waits and a fresh database session each
+time. Invalid event schemas go directly to `interactions.dlq`. Other failures go
+there after the third attempt. The source offset advances only after the database
+commit or Kafka's dead-letter acknowledgement. A dead-letter publish or offset
+commit failure stops the worker without advancing that offset locally.
+
+Dead letters contain source topic/partition/offset, attempt count, error type,
+time, and the original key/value encoded as base64 (including invalid bytes).
+They contain the original sensitive event data: restrict topic access as you do
+for `interactions`. Error messages and event contents are excluded from logs.
+After fixing the cause, decode `value_base64` and `key_base64` and republish to
+`interactions`, preserving the event ID. Replay is manual.
+
+Run `docker compose run --rm kafka-init` to create the dead-letter topic on an
+existing local setup. The publisher retries failed batches; delivery remains at
+least once. A crash between dead-letter acknowledgement and offset commit may
+produce duplicate dead letters; identify them by source topic/partition/offset.
+The attempt limit resets on worker restart. A prolonged database outage can send
+otherwise valid events to the dead-letter topic; inspect and replay after recovery.

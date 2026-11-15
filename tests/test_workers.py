@@ -18,11 +18,20 @@ from app.workers import outbox_publisher as publisher_module
 
 def make_event(**changes):
     values = dict(
-        event_id=uuid4(), interaction_id=uuid4(), tenant_id=uuid4(),
-        schema_version=1, occurred_at=datetime.now(timezone.utc),
-        ingested_at=datetime.now(timezone.utc), status="success", scores={},
-        model="test", latency_ms=50, input_token=3, output_token=7,
-        input="private prompt", output="response",
+        event_id=uuid4(),
+        interaction_id=uuid4(),
+        tenant_id=uuid4(),
+        schema_version=1,
+        occurred_at=datetime.now(timezone.utc),
+        ingested_at=datetime.now(timezone.utc),
+        status="success",
+        scores={},
+        model="test",
+        latency_ms=50,
+        input_token=3,
+        output_token=7,
+        input="private prompt",
+        output="response",
     )
     return InteractionEvent(**(values | changes))
 
@@ -46,7 +55,9 @@ def session_with_transaction(timeline, *, fail_commit=False):
 
 
 @pytest.mark.parametrize("duplicate", [False, True])
-@pytest.mark.parametrize("output,status", [(None, "error"), ("  ", "success"), ("ok", "success")])
+@pytest.mark.parametrize(
+    "output,status", [(None, "error"), ("  ", "success"), ("ok", "success")]
+)
 def test_summary_and_deduplication(duplicate, output, status):
     timeline = []
     event = make_event(output=output, status=status)
@@ -80,49 +91,104 @@ def test_tenant_mismatch_rolls_back_without_marking_processed():
     assert timeline == ["db_rollback"]
 
 
-@pytest.mark.parametrize("failure", [None, "commit", "invalid", "offset"])
+@pytest.mark.parametrize(
+    "failure", [None, "retry", "commit", "invalid", "offset", "dlq", "cancel"]
+)
 def test_consumer_commit_order_and_failures(monkeypatch, failure):
     timeline = []
     event = make_event()
-    session = session_with_transaction(timeline, fail_commit=failure == "commit")
-    session.scalar.return_value = event.interaction_id
-    session.execute.return_value = Mock(scalar_one_or_none=Mock(return_value=event.event_id))
+    sessions = []
 
     @asynccontextmanager
     async def factory():
+        session = session_with_transaction(
+            timeline,
+            fail_commit=(
+                failure in {"commit", "dlq"} or (failure == "retry" and not sessions)
+            ),
+        )
+        session.scalar.return_value = event.interaction_id
+        session.execute.return_value = Mock(
+            scalar_one_or_none=Mock(return_value=event.event_id)
+        )
+        sessions.append(session)
         yield session
 
     message = SimpleNamespace(
-        topic="interactions", partition=0, offset=9,
-        value=b"invalid" if failure == "invalid" else event.model_dump_json().encode(),
+        topic="interactions",
+        partition=0,
+        offset=9,
+        key=b"tenant",
+        value=b"invalid\xff"
+        if failure == "invalid"
+        else event.model_dump_json().encode(),
     )
-    consumer = AsyncMock()
+    consumer, producer = AsyncMock(), AsyncMock()
     consumer.__aiter__.return_value = [message]
 
     async def commit(offsets):
-        assert timeline == ["db_commit"]
+        assert timeline[-1] in {"db_commit", "dlq_ack"}
         assert offsets == {TopicPartition("interactions", 0): 10}
         if failure == "offset":
             raise RuntimeError("offset commit failed")
         timeline.append("offset_commit")
 
+    async def send(topic, **kwargs):
+        assert topic == "interactions.dlq"
+        payload = json.loads(kwargs["value"])
+        import base64
+
+        assert base64.b64decode(payload["value_base64"]) == message.value
+        assert base64.b64decode(payload["key_base64"]) == message.key
+        assert payload["attempts"] == (1 if failure == "invalid" else 3)
+        assert payload["source_offset"] == 9
+        assert "error_message" not in payload
+        if failure == "dlq":
+            raise RuntimeError("broker unavailable")
+        timeline.append("dlq_ack")
+
     consumer.commit.side_effect = commit
-    monkeypatch.setattr(consumer_module, "AIOKafkaConsumer", Mock(return_value=consumer))
-    logger = Mock()
-    monkeypatch.setattr(consumer_module, "logger", logger)
-    if failure:
-        with pytest.raises((RuntimeError, ValidationError)):
+    producer.send_and_wait.side_effect = send
+    if failure == "cancel":
+        monkeypatch.setattr(
+            consumer_module,
+            "process_event",
+            AsyncMock(side_effect=asyncio.CancelledError),
+        )
+    monkeypatch.setattr(
+        consumer_module, "AIOKafkaConsumer", Mock(return_value=consumer)
+    )
+    monkeypatch.setattr(
+        consumer_module, "AIOKafkaProducer", Mock(return_value=producer)
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(consumer_module.asyncio, "sleep", sleep)
+    monkeypatch.setattr(consumer_module, "logger", Mock())
+    if failure in {"offset", "dlq", "cancel"}:
+        with pytest.raises(
+            asyncio.CancelledError if failure == "cancel" else RuntimeError
+        ):
             asyncio.run(consumer_module.consume_interactions(factory))
-        logger.exception.assert_called_once()
         if failure != "offset":
             consumer.commit.assert_not_awaited()
     else:
         asyncio.run(consumer_module.consume_interactions(factory))
-        assert timeline == ["db_commit", "offset_commit"]
+        assert timeline[-1] == "offset_commit"
+    if failure in {"commit", "invalid", "dlq"}:
+        producer.send_and_wait.assert_awaited_once()
+        assert len(sessions) == (0 if failure == "invalid" else 3)
+    else:
+        producer.send_and_wait.assert_not_awaited()
+    assert sleep.await_count == (
+        2 if failure in {"commit", "dlq"} else 1 if failure == "retry" else 0
+    )
     consumer.stop.assert_awaited_once()
+    producer.stop.assert_awaited_once()
 
 
-@pytest.mark.parametrize("changes", [{"schema_version": 2}, {"input_token": -1}, {"status": "unknown"}])
+@pytest.mark.parametrize(
+    "changes", [{"schema_version": 2}, {"input_token": -1}, {"status": "unknown"}]
+)
 def test_contract_rejects_invalid_metrics(changes):
     with pytest.raises(ValidationError):
         make_event(**changes)
@@ -133,7 +199,9 @@ def test_publisher_marks_only_after_ack_and_cleans_up(monkeypatch, send_fails):
     timeline = []
     event = SimpleNamespace(tenant_id=uuid4(), payload={}, published_at=None)
     session = session_with_transaction(timeline)
-    session.execute.return_value = Mock(scalars=Mock(return_value=Mock(all=Mock(return_value=[event]))))
+    session.execute.return_value = Mock(
+        scalars=Mock(return_value=Mock(all=Mock(return_value=[event])))
+    )
 
     @asynccontextmanager
     async def factory():
@@ -148,10 +216,14 @@ def test_publisher_marks_only_after_ack_and_cleans_up(monkeypatch, send_fails):
         timeline.append("kafka_ack")
 
     producer.send_and_wait.side_effect = send
-    monkeypatch.setattr(publisher_module, "AIOKafkaProducer", Mock(return_value=producer))
+    monkeypatch.setattr(
+        publisher_module, "AIOKafkaProducer", Mock(return_value=producer)
+    )
 
     async def sleep(seconds):
-        assert timeline == (["db_rollback"] if send_fails else ["kafka_ack", "db_commit"])
+        assert timeline == (
+            ["db_rollback"] if send_fails else ["kafka_ack", "db_commit"]
+        )
         assert (event.published_at is None) is send_fails
         raise asyncio.CancelledError()
 

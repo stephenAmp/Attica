@@ -3,9 +3,9 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-attica}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-attica_local}
-      POSTGRES_DB: ${POSTGRES_DB:-attica}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
@@ -15,6 +15,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - my-net
+
+  adminer:
+    image: adminer:5
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
     networks:
       - my-net
   
@@ -55,6 +66,14 @@ services:
           --topic interactions \
           --partitions 1 \
           --replication-factor 1
+
+          /opt/kafka/bin/kafka-topics.sh \
+        --bootstrap-server kafka:29092 \
+        --create \
+        --if-not-exists \
+        --topic interactions.dlq \
+        --partitions 1 \
+        --replication-factor 1
 
         echo "Kafka topic ready!"
 
@@ -98,3 +117,6 @@ networks:
 volumes:
   postgres_data:
   kafka-data:
+
+
+  # use this as server port on adminer to test locally host.docker.internal
