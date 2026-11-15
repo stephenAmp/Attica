@@ -29,7 +29,12 @@ class InteractionService:
                     output_token = data.output_token,
                     input = data.input,
                     output = data.output,
-                    schema_version = data.schema_version   
+                    schema_version = data.schema_version,
+                    feature = data.feature,
+                    environment = data.environment,
+                    release =  data.release,
+                    prompt_version =  data.prompt_version,
+                    trace_id = data.trace_id
                 )
                 .on_conflict_do_nothing(constraint="uq_tenant_idempotency_key")
                 .returning(Interaction)

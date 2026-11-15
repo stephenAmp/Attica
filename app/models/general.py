@@ -1,5 +1,5 @@
 import uuid as uuid_lib
-from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
+from sqlalchemy.orm import  mapped_column, Mapped
 from sqlalchemy import Uuid, ForeignKey, DateTime, String, Integer, Text, Boolean, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime, timezone
@@ -77,9 +77,16 @@ class Interaction(Base):
     input_token: Mapped[int] = mapped_column(Integer, nullable=False)
     output_token: Mapped[int] = mapped_column(Integer, nullable=False)
     input: Mapped[str]  = mapped_column(Text, nullable=False)
-    output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output: Mapped[str| None] = mapped_column(Text, nullable=True)
     scores: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    feature: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    environment: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    prompt_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    release: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
 
     __table_args__ = (
         UniqueConstraint(
@@ -112,4 +119,11 @@ class ProcessedEvent(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     is_error: Mapped[bool] = mapped_column(Boolean, nullable=False)
     output_empty: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+    feature: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    environment: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    prompt_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    release: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))

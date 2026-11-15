@@ -86,23 +86,6 @@ The named Docker volume preserves data across container restarts and
 `docker compose down`. Removing that volume deletes the data. Changing database
 credentials in `.env` does not change users in an already initialized volume.
 
-## Your Week 1 work
-
-1. Define Pydantic request and response schemas, including a schema version,
-   event ID, event time, ingestion time, model, usage, latency, and status.
-2. Design tenant authentication. Derive tenant identity from authenticated
-   credentials; do not trust a request body's `tenant_id`.
-3. Create the interaction ORM model and its first Alembic migration.
-4. Implement `POST /v1/interactions` and a retrieval endpoint. Scope reads and
-   writes to the authenticated tenant and commit writes before acknowledging.
-5. Add tests for validation, persistence, authentication, and tenant isolation.
-
-Week 1 is complete when events can be submitted, stored, retrieved, and safely
-rejected when invalid. Kafka, ClickHouse, scoring, and workers come later.
-
-Implementation references: [SQLAlchemy async sessions](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
-and [Alembic async migrations](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic).
-
 
 ## Kafka workers
 

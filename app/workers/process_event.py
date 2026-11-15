@@ -29,6 +29,11 @@ async def process_event(session: AsyncSession, event: InteractionEvent) -> bool:
                 latency_ms=event.latency_ms,
                 is_error=event.status == "error",
                 output_empty=not (event.output or "").strip(),
+                feature=event.feature,
+                environment=event.environment,
+                release=event.release,
+                prompt_version=event.prompt_version,
+                trace_id=event.trace_id,
             )
             .on_conflict_do_nothing(index_elements=[ProcessedEvent.event_id])
             .returning(ProcessedEvent.event_id)

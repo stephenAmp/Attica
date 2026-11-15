@@ -24,6 +24,11 @@ async def process_with_retries(session_factory, message, producer):
                 event_id=str(event.event_id),
                 tenant_id=str(event.tenant_id),
                 interaction_id=str(event.interaction_id),
+                feature=event.feature,
+                environment=event.environment,
+                release=event.release,
+                prompt_version=event.prompt_version,
+                trace_id=str(event.trace_id) if event.trace_id else None,
             )
             async with session_factory() as session:
                 processed = await process_event(session, event)

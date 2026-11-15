@@ -21,6 +21,11 @@ class InteractionRead(BaseModel):
     input: str ;
     output: str | None;
     schema_version: int
+    environment: str | None = Field(default=None, max_length=100)
+    feature: str | None = Field(default=None, max_length=255)
+    trace_id: str | None = Field(default=None, max_length=255)
+    release: str | None = Field(default=None, max_length=50)
+    prompt_version: int | None = Field(default=None, ge=0, le=2147483647)
 
 
 
@@ -37,6 +42,12 @@ class InteractionCreate(BaseModel):
     input: str;
     output: str | None = None;
     schema_version: Literal[1] = 1;
+    environment: str | None = Field(default=None, max_length=100)
+    feature: str | None = Field(default=None, max_length=255)
+    trace_id: str | None = Field(default=None, max_length=255)
+    release: str | None = Field(default=None, max_length=50)
+    prompt_version: int | None = Field(default=None, ge=0, le=2147483647)
+
 
 
 class InteractionEvent(BaseModel):
@@ -54,3 +65,8 @@ class InteractionEvent(BaseModel):
     output_token: int = Field(ge=0);
     input: str ;
     output: str | None;
+    environment: str | None = Field(default=None, max_length=100)
+    feature: str | None = Field(default=None, max_length=255)
+    trace_id: str | None = Field(default=None, max_length=255)
+    release: str | None = Field(default=None, max_length=50)
+    prompt_version: int | None = Field(default=None, ge=0, le=2147483647)
