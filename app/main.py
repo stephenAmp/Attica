@@ -11,6 +11,7 @@ from app.api.health import router
 from app.api.tenant import router as tenant_router
 from app.api.interaction import router as interaction_router
 from app.api.trace import router as trace_router
+from app.api.outcome import router as outcome_router
 from app.core.config import Settings
 
 
@@ -41,3 +42,4 @@ app.include_router(auth_router)
 app.include_router(tenant_router)
 app.include_router(interaction_router)
 app.include_router(trace_router)
+app.include_router(outcome_router)

@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict, AwareDatetime
 from uuid import UUID
 from datetime import datetime
+from app.schema.outcome import OutcomeRead
 
 class TraceCallRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -26,6 +27,8 @@ class TraceRead(BaseModel):
     trace_id: str
     totals: TraceTotals
     calls: list[TraceCallRead]
+    outcomes: list[OutcomeRead]
+
 
 class TraceSummary(BaseModel):
     trace_id: str
