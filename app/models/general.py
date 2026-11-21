@@ -1,9 +1,8 @@
 import uuid as uuid_lib
 from sqlalchemy.orm import  mapped_column, Mapped
-from sqlalchemy import Uuid, ForeignKey, DateTime, String, Integer, Text, Boolean, UniqueConstraint
+from sqlalchemy import Uuid, ForeignKey, DateTime, String, Integer, Text, Boolean, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime, timezone
-
 from app.storage.postgres import Base
 
 
@@ -94,6 +93,13 @@ class Interaction(Base):
             "idempotency_key",
             name="uq_tenant_idempotency_key"
         ),
+        Index(
+            "ix_interaction_tenant_trace_occurred_id",
+            "tenant_id",
+            "trace_id",
+            "occurred_at",
+            "id"
+        )
     )
 
 
