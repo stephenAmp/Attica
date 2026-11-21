@@ -123,3 +123,42 @@ async def test_trace_orders_calls_deduplicates_replay_and_isolates_tenants(
         "input_tokens": 14,
         "output_tokens": 7,
     }
+
+
+@pytest.mark.anyio
+async def test_trace_search_with_error_includes_successful_retry(timeline_client):
+    client, tenant, _ = timeline_client
+    calls = [
+        ("retried", "error", "00:00:01", 3, 0),
+        ("retried", "success", "00:00:02", 11, 7),
+        ("healthy", "success", "00:00:01", 50, 20),
+    ]
+    for trace_id, status, time, inputs, outputs in calls:
+        response = await client.post(
+            f"/tenants/{tenant}/interactions",
+            headers={"Idempotency-Key": f"{trace_id}-{status}"},
+            json={
+                "trace_id": trace_id, "status": status, "model": "example",
+                "occurred_at": f"2026-01-01T{time}Z", "latency_ms": 50,
+                "input": "hello", "input_token": inputs, "output_token": outputs,
+            },
+        )
+        assert response.is_success, response.text
+
+    response = await client.get(
+        f"/tenants/{tenant}/traces",
+        params={
+            "has_error": "true",
+            "start_time": "2026-01-01T00:00:00Z",
+            "end_time": "2026-01-01T00:01:00Z",
+        },
+    )
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert page["total"] == 1
+    (summary,) = page["traces"]
+    assert summary["trace_id"] == "retried"
+    assert summary["call_count"] == 2
+    assert summary["failure_count"] == 1
+    assert summary["input_tokens"] == 14
+    assert summary["output_tokens"] == 7
