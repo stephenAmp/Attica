@@ -1,8 +1,10 @@
 from uuid import UUID
-from sqlalchemy import select
+from datetime import datetime
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from app.models.general import Interaction
-from app.schema.trace import TraceTotals, TraceCallRead, TraceRead
+from app.schema.trace import TraceTotals, TraceCallRead, TraceRead, TraceListResponse, TraceSummary
 
 
 class TraceService:
@@ -22,3 +24,60 @@ class TraceService:
 
         return TraceRead(tenant_id = tenant_id, trace_id = trace_id, calls = calls,totals = totals)
 
+
+    async def listTraces(
+            self,
+            tenant_id: UUID,
+            start_time: datetime,
+            end_time: datetime,
+            release: str | None = None,
+            has_error: bool = False,
+            limit: int = 20,
+            offset: int = 0,
+    ) -> TraceListResponse:
+        matching_query = select(Interaction.trace_id).where(Interaction.tenant_id == tenant_id, Interaction.trace_id.is_not(None), Interaction.occurred_at >= start_time, Interaction.occurred_at < end_time)
+
+        if release is not None:
+            matching_query = matching_query.where(Interaction.release == release)
+        if has_error:
+            matching_query = matching_query.where(Interaction.status == "error")
+
+        matching_traces = matching_query.distinct().subquery()
+
+        calls = aliased(Interaction)
+       
+        summary_query = select(
+            calls.trace_id.label("trace_id"), 
+            func.max(calls.occurred_at).label("last_activity"),
+            func.count(calls.id).label("call_count"),
+            func.count(calls.id).filter(calls.status == "error").label("failure_count"),
+            func.coalesce(func.sum(calls.input_token), 0).label("input_tokens"),
+            func.coalesce(func.sum(calls.output_token), 0).label("output_tokens")
+            ).join(
+                matching_traces, calls.trace_id == matching_traces.c.trace_id
+            ).where(
+                calls.tenant_id == tenant_id
+            ). group_by(
+                calls.trace_id
+            )
+        
+
+        summaries = summary_query.subquery()
+
+        total = await self.db.scalar(select(func.count()).select_from(summaries))
+
+        statement = select(summaries).order_by(
+            summaries.c.last_activity.desc(),
+            summaries.c.trace_id.desc(),
+        ).limit(limit).offset(offset)
+
+
+        result = await self.db.execute(statement)
+
+        traces = [
+            TraceSummary.model_validate(dict(row))
+            for row in result.mappings().all()
+        ]
+
+        return TraceListResponse(total = total or 0, limit = limit, offset = offset, traces = traces)
+        
