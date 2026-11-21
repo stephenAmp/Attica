@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from app.models.general import Interaction, Outcome
+from app.schema.outcome import OutcomeRead
 from app.schema.trace import TraceTotals, TraceCallRead, TraceRead, TraceListResponse, TraceSummary
 
 
@@ -37,7 +38,7 @@ class TraceService:
 
         result = await self.db.execute(statement)
         outcomes = [
-            TraceRead.model_validate(outcome, from_attributes = True) for outcome in result.scalars().all()
+            OutcomeRead.model_validate(outcome, from_attributes = True) for outcome in result.scalars().all()
         ]
 
         totals = TraceTotals(calls = len(calls), failures = sum(call.status == "error" for call in calls), input_tokens = sum(call.input_token for call in calls), output_tokens = sum(call.output_token for call in calls))

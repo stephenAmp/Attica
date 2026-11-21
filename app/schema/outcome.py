@@ -6,11 +6,12 @@ from uuid import UUID
 class OutcomeCreate(BaseModel):
     model_config = ConfigDict(extra = "forbid")
 
-    tenant_id: UUID
-    trace_id: str
+    event_id: UUID
+    trace_id: str = Field(min_length = 1, max_length = 255)
     name: str = Field(min_length = 1, max_length = 255)
-    occured_at: AwareDatetime
+    occurred_at: AwareDatetime
 
 
 class OutcomeRead(OutcomeCreate):
+    tenant_id: UUID
     ingested_at: datetime

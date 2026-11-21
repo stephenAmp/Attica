@@ -2,7 +2,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schema.outcome import OutcomeCreate
 from app.models.general import Outcome
-from sqlalchemy import insert, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
 from fastapi import HTTPException
 
 
@@ -21,13 +22,13 @@ class OutcomeService:
             constraint = "uq_tenant_outcome_event"
         ).returning(Outcome)
 
-        outcome = await self.db.execute(statement).scalar_one_or_none()
+        outcome = (await self.db.execute(statement)).scalar_one_or_none()
 
         if outcome is not None:
             return outcome
 
         statement = select(Outcome).where(Outcome.event_id == data.event_id, Outcome.tenant_id == tenant_id)
-        existing = self.db.execute(statement).scalar_one()
+        existing = (await self.db.execute(statement)).scalar_one()
 
         if(
             existing.occurred_at != data.occurred_at

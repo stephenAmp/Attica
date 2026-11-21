@@ -109,7 +109,7 @@ class Outcome(Base):
     id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid = True), primary_key = True, default = uuid_lib.uuid4)
     event_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid = True), nullable = False)
     tenant_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid = True), ForeignKey("tenant.id"))
-    trace_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid = True), nullable = False)
+    trace_id: Mapped[str] = mapped_column(String(255), nullable = False)
     name: Mapped[str] = mapped_column(String(255))
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default = lambda: datetime.now(timezone.utc))
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
