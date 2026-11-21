@@ -28,7 +28,7 @@ async def process_event(session: AsyncSession, event: InteractionEvent) -> bool:
                 total_tokens=event.input_token + event.output_token,
                 latency_ms=event.latency_ms,
                 is_error=event.status == "error",
-                output_empty=not (event.output or "").strip(),
+                output_empty=None if event.output is None else not event.output.strip(),
                 feature=event.feature,
                 environment=event.environment,
                 release=event.release,

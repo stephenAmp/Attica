@@ -1,16 +1,27 @@
 """Set TEST_DATABASE_URL to an asyncpg test database with CREATE SCHEMA access."""
 
 import os
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import interaction, outcome, trace
 from app.api.dependencies import get_current_user
-from app.models.general import Role, Tenant, User, UserTenants
+from app.models.general import (
+    Interaction,
+    OutboxEvent,
+    ProcessedEvent,
+    Role,
+    Tenant,
+    User,
+    UserTenants,
+)
+from app.schema.interaction import InteractionEvent
+from app.workers.process_event import process_event
 from app.storage.postgres import Base, get_session
 
 
@@ -20,7 +31,7 @@ def anyio_backend():
 
 
 @pytest.fixture
-async def timeline_client():
+async def timeline_db_client():
     url = os.getenv("TEST_DATABASE_URL")
     if not url:
         pytest.skip("Set TEST_DATABASE_URL to run PostgreSQL integration tests")
@@ -68,9 +79,15 @@ async def timeline_client():
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app), base_url="http://test"
             ) as client:
-                yield client, tenants[0].id, tenants[1].id
+                yield client, tenants[0].id, tenants[1].id, sessions
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+def timeline_client(timeline_db_client):
+    client, tenant_a, tenant_b, _ = timeline_db_client
+    return client, tenant_a, tenant_b
 
 
 @pytest.mark.anyio
@@ -273,3 +290,55 @@ async def test_trace_search_matches_late_outcomes_without_multiplying_calls(
         summary["input_tokens"],
         summary["output_tokens"],
     ) == (2, 0, 10, 4)
+
+
+@pytest.mark.anyio
+async def test_metadata_only_failed_call_and_outcome(timeline_db_client):
+    client, tenant, _, sessions = timeline_db_client
+    path = f"/tenants/{tenant}"
+    payload = dict(
+        trace_id="metadata-only",
+        occurred_at="2026-01-05T12:00:00Z",
+        status="error",
+        model="example",
+        latency_ms=18,
+        input_token=9,
+        output_token=2,
+    )
+    headers = {"Idempotency-Key": "failed-call"}
+    created = await client.post(f"{path}/interactions", json=payload, headers=headers)
+    assert created.is_success, created.text
+    replay = await client.post(f"{path}/interactions", json=payload, headers=headers)
+    assert replay.is_success and replay.json() == created.json()
+    call_id = UUID(created.json()["id"])
+
+    async with sessions() as db:
+        call = await db.get(Interaction, call_id)
+        assert call.input is None and call.output is None
+        row = (await db.scalars(select(OutboxEvent))).one()
+        assert row.payload.get("input") is None and row.payload.get("output") is None
+        event = InteractionEvent.model_validate(row.payload)
+        assert event.interaction_id == call_id
+
+    async with sessions() as db:
+        assert await process_event(db, event)
+        summary = (await db.scalars(select(ProcessedEvent))).one()
+        assert summary.output_empty is None and summary.is_error is True
+        assert summary.total_tokens == 11
+
+    outcome = dict(
+        event_id=str(uuid4()),
+        trace_id=payload["trace_id"],
+        occurred_at=payload["occurred_at"],
+        name="review_requested",
+    )
+    recorded = await client.post(f"{path}/outcomes", json=outcome)
+    assert recorded.is_success, recorded.text
+    timeline = await client.get(f"{path}/traces/metadata-only")
+    assert timeline.status_code == 200, timeline.text
+    trace_data = timeline.json()
+    assert [c["id"] for c in trace_data["calls"]] == [str(call_id)]
+    assert trace_data["totals"] == dict(
+        calls=1, failures=1, input_tokens=9, output_tokens=2
+    )
+    assert trace_data["outcomes"] == [recorded.json()]

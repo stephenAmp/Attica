@@ -75,7 +75,7 @@ class Interaction(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     input_token: Mapped[int] = mapped_column(Integer, nullable=False)
     output_token: Mapped[int] = mapped_column(Integer, nullable=False)
-    input: Mapped[str]  = mapped_column(Text, nullable=False)
+    input: Mapped[str | None] = mapped_column(Text, nullable=True)
     output: Mapped[str| None] = mapped_column(Text, nullable=True)
     scores: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -150,7 +150,7 @@ class ProcessedEvent(Base):
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     is_error: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    output_empty: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    output_empty: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
     feature: Mapped[str | None] = mapped_column(String(255), nullable=True)

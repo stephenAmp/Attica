@@ -75,7 +75,7 @@ def test_summary_and_deduplication(duplicate, output, status):
     assert params["total_tokens"] == 10
     assert params["latency_ms"] == 50
     assert params["is_error"] is (status == "error")
-    assert params["output_empty"] is (output is None or not output.strip())
+    assert params["output_empty"] is (None if output is None else not output.strip())
     assert "ON CONFLICT (event_id) DO NOTHING" in str(statement)
     assert "private prompt" not in str(params)
     assert timeline == ["db_commit"]

@@ -18,8 +18,8 @@ class InteractionRead(BaseModel):
     ingested_at: AwareDatetime;
     input_token: int;
     output_token: int;
-    input: str ;
-    output: str | None;
+    input: str | None = None
+    output: str | None = None
     schema_version: int
     environment: str | None = Field(default=None, max_length=100)
     feature: str | None = Field(default=None, max_length=255)
@@ -39,7 +39,7 @@ class InteractionCreate(BaseModel):
     input_token: int = Field(ge=0);
     output_token: int = Field(ge=0);
 
-    input: str;
+    input: str | None = None
     output: str | None = None;
     schema_version: Literal[1] = 1;
     environment: str | None = Field(default=None, max_length=100)
@@ -63,8 +63,8 @@ class InteractionEvent(BaseModel):
     latency_ms: int = Field(ge=0);
     input_token: int = Field(ge=0);
     output_token: int = Field(ge=0);
-    input: str ;
-    output: str | None;
+    input: str | None = None
+    output: str | None = None
     environment: str | None = Field(default=None, max_length=100)
     feature: str | None = Field(default=None, max_length=255)
     trace_id: str | None = Field(default=None, max_length=255)
