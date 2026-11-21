@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.api import interaction, trace
+from app.api import interaction, outcome, trace
 from app.api.dependencies import get_current_user
 from app.models.general import Role, Tenant, User, UserTenants
 from app.storage.postgres import Base, get_session
@@ -62,6 +62,7 @@ async def timeline_client():
             app = FastAPI()
             app.include_router(interaction.router)
             app.include_router(trace.router)
+            app.include_router(outcome.router)
             app.dependency_overrides[get_session] = session_dependency
             app.dependency_overrides[get_current_user] = lambda: user
             async with httpx.AsyncClient(
@@ -138,9 +139,14 @@ async def test_trace_search_with_error_includes_successful_retry(timeline_client
             f"/tenants/{tenant}/interactions",
             headers={"Idempotency-Key": f"{trace_id}-{status}"},
             json={
-                "trace_id": trace_id, "status": status, "model": "example",
-                "occurred_at": f"2026-01-01T{time}Z", "latency_ms": 50,
-                "input": "hello", "input_token": inputs, "output_token": outputs,
+                "trace_id": trace_id,
+                "status": status,
+                "model": "example",
+                "occurred_at": f"2026-01-01T{time}Z",
+                "latency_ms": 50,
+                "input": "hello",
+                "input_token": inputs,
+                "output_token": outputs,
             },
         )
         assert response.is_success, response.text
@@ -162,3 +168,108 @@ async def test_trace_search_with_error_includes_successful_retry(timeline_client
     assert summary["failure_count"] == 1
     assert summary["input_tokens"] == 14
     assert summary["output_tokens"] == 7
+
+
+@pytest.mark.anyio
+async def test_outcome_before_call_replay_conflict_and_tenant_isolation(
+    timeline_client,
+):
+    client, tenant_a, tenant_b = timeline_client
+    path = f"/tenants/{tenant_a}/outcomes"
+    event = dict(
+        event_id=str(uuid4()),
+        trace_id="shared",
+        name="accepted",
+        occurred_at="2026-01-07T12:00:00Z",
+    )
+    created = await client.post(path, json=event)
+    assert created.is_success, created.text
+    replay = await client.post(path, json=event)
+    assert replay.is_success and replay.json() == created.json()
+    conflict = await client.post(path, json=dict(event, name="changed"))
+    assert conflict.status_code == 409
+
+    for tenant in (tenant_a, tenant_b):
+        await submit_search_call(client, tenant, "shared", "model-call")
+        detail = await client.get(f"/tenants/{tenant}/traces/shared")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["outcomes"] == (
+            [created.json()] if tenant == tenant_a else []
+        )
+        assert detail.json()["totals"]["calls"] == 1
+
+
+async def submit_search_call(client, tenant, trace_id, key, release="v12"):
+    payload = dict(
+        trace_id=trace_id,
+        release=release,
+        model="example",
+        input="hello",
+        occurred_at="2026-01-05T12:00:00Z",
+        status="success",
+        latency_ms=25,
+        input_token=5,
+        output_token=2,
+    )
+    response = await client.post(
+        f"/tenants/{tenant}/interactions",
+        json=payload,
+        headers={"Idempotency-Key": key},
+    )
+    assert response.is_success, response.text
+
+
+@pytest.mark.anyio
+async def test_trace_search_matches_late_outcomes_without_multiplying_calls(
+    timeline_client,
+):
+    client, tenant_a, tenant_b = timeline_client
+    await submit_search_call(client, tenant_a, "matched", "first")
+    await submit_search_call(client, tenant_a, "matched", "second", release="v13")
+    await submit_search_call(client, tenant_a, "other", "third")
+    path = f"/tenants/{tenant_a}/traces"
+    params = dict(
+        start_time="2026-01-05T00:00:00Z",
+        end_time="2026-01-06T00:00:00Z",
+        outcome_name="correction_requested",
+        release="v12",
+    )
+
+    async def send_outcome(tenant, trace_id, name):
+        response = await client.post(
+            f"/tenants/{tenant}/outcomes",
+            json=dict(
+                event_id=str(uuid4()),
+                trace_id=trace_id,
+                name=name,
+                occurred_at="2026-01-07T12:00:00Z",
+            ),
+        )
+        assert response.is_success, response.text
+
+    await send_outcome(tenant_a, "matched", "accepted")
+    await send_outcome(tenant_b, "other", "correction_requested")
+    before = await client.get(path, params=params)
+    assert before.status_code == 200 and before.json()["total"] == 0
+
+    for _ in range(2):
+        await send_outcome(tenant_a, "matched", "correction_requested")
+    response = await client.get(path, params=params)
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 1
+    (summary,) = response.json()["traces"]
+    assert summary["trace_id"] == "matched"
+    detail = await client.get(f"{path}/matched")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["totals"] == {
+        "calls": 2,
+        "failures": 0,
+        "input_tokens": 10,
+        "output_tokens": 4,
+    }
+    assert (
+        summary["call_count"],
+        summary["failure_count"],
+        summary["input_tokens"],
+        summary["output_tokens"],
+    ) == (2, 0, 10, 4)

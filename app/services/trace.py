@@ -55,6 +55,7 @@ class TraceService:
             has_error: bool = False,
             limit: int = 20,
             offset: int = 0,
+            outcome_name: str | None = None,
     ) -> TraceListResponse:
         matching_query = select(Interaction.trace_id).where(Interaction.tenant_id == tenant_id, Interaction.trace_id.is_not(None), Interaction.occurred_at >= start_time, Interaction.occurred_at < end_time)
 
@@ -62,6 +63,14 @@ class TraceService:
             matching_query = matching_query.where(Interaction.release == release)
         if has_error:
             matching_query = matching_query.where(Interaction.status == "error")
+
+        if outcome_name is not None:
+            matching_outcome = select(Outcome.id).where(
+                Outcome.tenant_id == Interaction.tenant_id,
+                Outcome.trace_id == Interaction.trace_id,
+                Outcome.name == outcome_name,
+            ).exists()
+            matching_query = matching_query.where(matching_outcome)
 
         matching_traces = matching_query.distinct().subquery()
 
