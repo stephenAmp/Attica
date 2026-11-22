@@ -103,7 +103,9 @@ class TenantSpecificRateLimiter:
         request: Request,
         membership: Annotated[UserTenants, Depends(get_tenant_membership)],
     ):
-        tenant_id = membership.tenant_id
+        return self.check(request, membership.tenant_id)
+
+    def check(self, request: Request, tenant_id: UUID):
         route_path = request.scope["route"].path
         current_time = int(time.time())
 

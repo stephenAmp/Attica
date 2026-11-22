@@ -12,7 +12,7 @@ class InteractionService:
     def __init__(self, db:AsyncSession):
         self.db = db
 
-    async def createInteraction(self, data:InteractionCreate, idempotency_key: str, tenant_id: UUID, user_id: UUID) -> InteractionRead:
+    async def createInteraction(self, data:InteractionCreate, idempotency_key: str, tenant_id: UUID, user_id: UUID | None, ingestion_key_id: UUID | None = None) -> tuple[InteractionRead, str]:
         payload_hash = hash_payload(data)
         statement = (
                 insert(Interaction)
@@ -21,6 +21,7 @@ class InteractionService:
                     idempotency_key = idempotency_key,
                     payload_hash = payload_hash,
                     created_by = user_id,
+                    ingestion_key_id = ingestion_key_id,
                     occurred_at = data.occurred_at,
                     status = data.status,
                     model = data.model,
@@ -60,7 +61,7 @@ class InteractionService:
         payload = InteractionEvent(
             event_id=event_id,
             interaction_id=interaction.id,
-            **response.model_dump(exclude={"id", "created_by"}),
+            **response.model_dump(exclude={"id", "created_by", "ingestion_key_id", "source_type", "source_id"}),
         )
         event = OutboxEvent(
             id=event_id,

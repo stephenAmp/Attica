@@ -8,7 +8,10 @@ class InteractionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID;
-    created_by: UUID;
+    created_by: UUID | None
+    ingestion_key_id: UUID | None = None
+    source_type: Literal["user", "api_key"]
+    source_id: UUID
     tenant_id: UUID;
     status: str;
     scores: Dict[str, Any];

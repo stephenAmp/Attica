@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.logging import configure_logging
 from app.api.middleware.request_size import RequestSizeLimitMiddleware
 from app.api.middleware.request_logging import RequestLoggingMiddleware
+from app.api.ingestion_keys import router as ingestion_keys_router
 from app.api.auth import router as auth_router
 from app.api.health import router
 from app.api.tenant import router as tenant_router
@@ -39,6 +40,7 @@ app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(router)
 app.include_router(auth_router)
+app.include_router(ingestion_keys_router)
 app.include_router(tenant_router)
 app.include_router(interaction_router)
 app.include_router(trace_router)

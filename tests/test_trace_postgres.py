@@ -9,9 +9,10 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.api import interaction, outcome, trace
-from app.api.dependencies import get_current_user
+from app.api import ingestion_keys, interaction, outcome, trace
+from app.utils.token import create_access_token
 from app.models.general import (
+    IngestionAPIKey,
     Interaction,
     OutboxEvent,
     ProcessedEvent,
@@ -75,9 +76,11 @@ async def timeline_db_client():
             app.include_router(trace.router)
             app.include_router(outcome.router)
             app.dependency_overrides[get_session] = session_dependency
-            app.dependency_overrides[get_current_user] = lambda: user
+            app.include_router(ingestion_keys.router)
+            token = create_access_token(str(user.id), True)
             async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app), base_url="http://test"
+                transport=httpx.ASGITransport(app), base_url="http://test",
+                headers={"Authorization": f"Bearer {token}"},
             ) as client:
                 yield client, tenants[0].id, tenants[1].id, sessions
     finally:
@@ -314,6 +317,8 @@ async def test_metadata_only_failed_call_and_outcome(timeline_db_client):
 
     async with sessions() as db:
         call = await db.get(Interaction, call_id)
+        assert call.source_type == "user"
+        assert call.source_id == call.created_by
         assert call.input is None and call.output is None
         row = (await db.scalars(select(OutboxEvent))).one()
         assert row.payload.get("input") is None and row.payload.get("output") is None
@@ -342,3 +347,61 @@ async def test_metadata_only_failed_call_and_outcome(timeline_db_client):
         calls=1, failures=1, input_tokens=9, output_tokens=2
     )
     assert trace_data["outcomes"] == [recorded.json()]
+
+
+@pytest.mark.anyio
+async def test_ingestion_key_lifecycle(timeline_db_client):
+    client, tenant, other, sessions = timeline_db_client
+    base = f"/tenants/{tenant}"
+    keys = f"{base}/ingestion-keys"
+    name = {"name": "support-api-prod"}
+    assert (await client.post(keys, json=name)).status_code == 403
+
+    async with sessions.begin() as db:
+        membership = (await db.scalars(select(UserTenants).where(UserTenants.tenant_id == tenant))).one()
+        admin = Role(name="admin")
+        db.add(admin)
+        await db.flush()
+        membership.role_id = admin.id
+        issuer = membership.user_id
+
+    issued = await client.post(keys, json=name)
+    assert issued.status_code == 201, issued.text
+    first = issued.json()
+    second = (await client.post(keys, json={"name": "second"})).json()
+    listed = (await client.get(keys)).json()
+    assert len(listed) == 2
+    assert all("api_key" not in row and "secret_hash" not in row for row in listed)
+    async with sessions() as db:
+        stored = await db.get(IngestionAPIKey, UUID(first["id"]))
+        assert stored.created_by == issuer
+        assert stored.secret_hash not in first["api_key"]
+
+    admin_auth = client.headers.pop("Authorization")
+    client.headers["X-Attica-API-Key"] = first["api_key"]
+    payload = dict(trace_id="key-trace", occurred_at="2026-01-01T00:00:00Z",
+                   model="example", status="success", latency_ms=20, input_token=2, output_token=1)
+    headers = {"Idempotency-Key": "attempt-1"}
+    created = await client.post(f"{base}/interactions", json=payload, headers=headers)
+    assert created.status_code == 201, created.text
+    assert created.json()["source_type"] == "api_key"
+    assert created.json()["source_id"] == first["id"]
+    assert created.json()["ingestion_key_id"] == first["id"]
+    assert created.json()["created_by"] is None
+    event = dict(trace_id="key-trace", occurred_at="2026-01-01T00:01:00Z", event_id=str(uuid4()), name="resolved")
+    assert (await client.post(f"{base}/outcomes", json=event)).status_code == 200
+    assert (await client.get(f"{base}/traces/key-trace")).status_code == 401
+    assert (await client.post(keys, json=name)).status_code == 401
+    assert (await client.post(f"/tenants/{other}/outcomes", json=event)).status_code == 403
+    assert (await client.post(f"/tenants/{other}/interactions", json=payload, headers=headers)).status_code == 403
+
+    for _ in range(4):
+        assert (await client.post(f"{base}/interactions", json=payload, headers=headers)).status_code == 201
+    client.headers["X-Attica-API-Key"] = second["api_key"]
+    assert (await client.post(f"{base}/interactions", json=payload, headers=headers)).status_code == 429
+
+    del client.headers["X-Attica-API-Key"]
+    revoked = await client.delete(f"{keys}/{first['id']}", headers={"Authorization": admin_auth})
+    assert revoked.status_code == 204
+    client.headers["X-Attica-API-Key"] = first["api_key"]
+    assert (await client.post(f"{base}/outcomes", json=event)).status_code == 401

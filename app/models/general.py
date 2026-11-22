@@ -1,6 +1,6 @@
 import uuid as uuid_lib
 from sqlalchemy.orm import  mapped_column, Mapped
-from sqlalchemy import Uuid, ForeignKey, DateTime, String, Integer, Text, Boolean, UniqueConstraint, Index
+from sqlalchemy import Uuid, ForeignKey, DateTime, String, Integer, Text, Boolean, Computed, CheckConstraint, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime, timezone
 from app.storage.postgres import Base
@@ -57,6 +57,19 @@ class RolePermission(Base):
     permission_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("permission.id"), primary_key=True, nullable=False)
 
 
+class IngestionAPIKey(Base):
+    __tablename__ = "ingestion_api_key"
+
+    id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid = True), primary_key = True, default = uuid_lib.uuid4)
+    tenant_id:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("tenant.id"), nullable=False, index = True)
+    name: Mapped[str] = mapped_column(String(100), nullable = False)
+    secret_hash: Mapped[str] = mapped_column(String(64), nullable = False)
+    created_by:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default = lambda: datetime.now(timezone.utc))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable = True)
+    
+
+
 class Interaction(Base):
     __tablename__ = "interaction"
 
@@ -65,7 +78,10 @@ class Interaction(Base):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     tenant_id:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("tenant.id"), nullable=False)
-    created_by:Mapped[uuid_lib.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("user.id"), nullable=False)
+    created_by: Mapped[uuid_lib.UUID | None] = mapped_column(ForeignKey("user.id"))
+    ingestion_key_id: Mapped[uuid_lib.UUID | None] = mapped_column(ForeignKey("ingestion_api_key.id"))
+    source_type: Mapped[str] = mapped_column(String(7), Computed("CASE WHEN ingestion_key_id IS NULL THEN 'user' ELSE 'api_key' END", persisted=True))
+    source_id: Mapped[uuid_lib.UUID] = mapped_column(Uuid(), Computed("COALESCE(ingestion_key_id, created_by)", persisted=True))
     occurred_at: Mapped[datetime] = mapped_column(
     DateTime(timezone=True), nullable=False)
     ingested_at: Mapped[datetime] = mapped_column(
@@ -88,6 +104,7 @@ class Interaction(Base):
 
 
     __table_args__ = (
+        CheckConstraint("num_nonnulls(created_by, ingestion_key_id) = 1", name="ck_interaction_source"),
         UniqueConstraint(
             "tenant_id", 
             "idempotency_key",

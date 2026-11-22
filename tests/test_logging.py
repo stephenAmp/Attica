@@ -189,11 +189,14 @@ def test_ingestion_outcomes(existing):
     )
     from app.utils.security import hash_payload
 
+    user_id = uuid4()
     record = SimpleNamespace(
         **data.model_dump(),
         id=uuid4(),
         tenant_id=uuid4(),
-        created_by=uuid4(),
+        created_by=user_id,
+        source_type="user",
+        source_id=user_id,
         ingested_at=now,
         scores={},
         payload_hash=hash_payload(data),
@@ -240,9 +243,7 @@ def test_ingestion_logged_only_after_commit(monkeypatch, commit_fails):
             call = endpoint.create_interaction(
                 data=Mock(),
                 idempotency_key="key",
-                current_user=SimpleNamespace(id=uuid4()),
-                membership=SimpleNamespace(tenant_id=uuid4()),
-                _role=Mock(),
+                principal=endpoint.IngestionPrincipal(uuid4(), "user", uuid4()),
                 session=session,
             )
             if commit_fails:
