@@ -15,7 +15,8 @@ from fastapi.security import HTTPAuthorizationCredentials
 from structlog.contextvars import bind_contextvars
 
 write_role = required_role_check({"admin", "developer"})
-limiter = TenantSpecificRateLimiter(5, 60)
+
+limiter = TenantSpecificRateLimiter(1000, 60)
 @dataclass(frozen=True)
 class IngestionPrincipal:
     tenant_id: UUID

@@ -1,7 +1,7 @@
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-MAX_REQUEST_SIZE = 64 * 1024  # 64 KiB
+MAX_REQUEST_SIZE = 1024 * 1024  # 1MB
 
 
 class RequestSizeLimitMiddleware:

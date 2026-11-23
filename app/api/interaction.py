@@ -11,17 +11,20 @@ from app.services.interaction import InteractionService
 from fastapi import Path
 from app.core.logging import get_logger
 from sqlalchemy.exc import SQLAlchemyError
+from app.schema.interaction_batch import InteractionBatchCreate, InteractionBatchRead
+from app.services.interaction_batch import InteractionBatchService
+
 
 from structlog.contextvars import bind_contextvars
 
 
 router = APIRouter(prefix="/tenants/{tenant_id}/interactions", tags=["interaction"])
 
-limiter = TenantSpecificRateLimiter(5, 60)
+limiter = TenantSpecificRateLimiter(100, 60)
 
 logger = get_logger()
 
-@router.post("", response_model=InteractionRead, status_code=status.HTTP_201_CREATED)
+@router.post("", dependencies=[Depends(limiter)], response_model=InteractionRead, status_code=status.HTTP_201_CREATED)
 async def create_interaction(
     data: InteractionCreate,
     idempotency_key: Annotated[str, Header(min_length=1, max_length=255)],
@@ -58,6 +61,35 @@ async def create_interaction(
     except Exception:
         await session.rollback()
         raise
+
+
+
+@router.post("/batch", response_model=InteractionBatchRead, status_code=status.HTTP_201_CREATED)
+async def create_interaction_batch(
+    data: InteractionBatchCreate,
+    principal: Annotated[
+        IngestionPrincipal,
+        Depends(get_ingestion_principal),
+    ],
+    session: Annotated[
+        AsyncSession,
+        Depends(get_session),
+    ],
+) -> InteractionBatchRead:
+
+    # Before processing:
+    # Atomically charge len(data.items) against the tenant's
+    # shared interaction-ingestion quota.
+
+    try:
+        response = await InteractionBatchService(session).createBatch(data = data,principal = principal)
+        await session.commit()
+        return response
+
+    except Exception:
+        await session.rollback()
+        raise
+
 
 @router.get("/{interaction_id}", dependencies=[Depends(limiter)], response_model=InteractionRead, status_code=200)
 async def get_interaction_by_id(
