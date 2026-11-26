@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schema.interaction_batch import InteractionBatchCreate, BatchInteractionItem, BatchItemResult, InteractionBatchRead
+from app.schema.interaction_batch import InteractionBatchCreate, BatchItemResult, InteractionBatchRead
 from app.api.ingestion_auth import IngestionPrincipal
 from app.services.interaction import InteractionService
 from fastapi import HTTPException
@@ -10,11 +10,17 @@ class InteractionBatchService:
         self.interaction_service = InteractionService(db)
 
 
-    async def createBatch(self, data: InteractionBatchCreate, principal: IngestionPrincipal)-> BatchInteractionItem:
+    async def createBatch(self, data: InteractionBatchCreate, principal: IngestionPrincipal) -> InteractionBatchRead:
         results = []
         for index, item in enumerate(data.items):
             try:
-                interaction, created = self.interaction_service.createInteraction(item.interaction, item.idempotency_key, tenant_id = principal.tenant_id, principal = principal)
+              interaction, outcome = await self.interaction_service.createInteraction(
+                item.interaction,
+                item.idempotency_key,
+                tenant_id=principal.tenant_id,
+                user_id=principal.source_id if principal.source_type == "user" else None,
+                ingestion_key_id=principal.source_id if principal.source_type == "api_key" else None,
+                )
 
             except HTTPException as exc:
                 if exc.status_code == 409:
@@ -22,6 +28,6 @@ class InteractionBatchService:
 
                 raise
 
-            results.append(BatchItemResult(index = index, interaction_id = interaction.id, status = "created" if created else "duplicate"))
+            results.append(BatchItemResult(index = index, interaction_id = interaction.id, status = "created" if outcome == "created" else "duplicate"))
 
-            return InteractionBatchRead(results = results)
+        return InteractionBatchRead(result=results)

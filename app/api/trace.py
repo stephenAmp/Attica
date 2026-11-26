@@ -1,5 +1,4 @@
-from uuid import UUID
-from typing import Annotated
+from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from app.schema.trace import TraceRead, TraceListResponse
 from app.models.general import UserTenants, Role
@@ -36,6 +35,9 @@ async def list_traces(
     has_error: bool = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
+    feature: str | None = None,
+    environment: str | None = None,
+    cohort: Literal["activity", "release"] = "activity",
 ) -> TraceListResponse:
     now = datetime.now(timezone.utc)
     resolved_end_time = end_time or now
@@ -44,11 +46,19 @@ async def list_traces(
     if resolved_start_time >= resolved_end_time:
         raise HTTPException(status_code=422, detail="start_time must be before end_time")
 
+    if cohort == "release":
+        if not release or not feature or not environment:
+            raise HTTPException(status_code = 422, detail = ("Release cohort requires release, feature, and environment")
+        )
+
     return await TraceService(session).listTraces(
-        tenant_id=membership.tenant_id,
+        tenant_id = membership.tenant_id,
         start_time=resolved_start_time,
         end_time=resolved_end_time,
-        release=release,
+        release = release,
+        feature = feature,
+        environment = environment,
+        cohort=cohort,
         has_error=has_error,
         limit=limit,
         offset=offset,

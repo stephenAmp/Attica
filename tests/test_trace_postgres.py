@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.api import ingestion_keys, interaction, outcome, trace
+from app.api import ingestion_keys, interaction, outcome, release, trace
 from app.utils.token import create_access_token
 from app.models.general import (
     IngestionAPIKey,
@@ -74,6 +74,7 @@ async def timeline_db_client():
             app = FastAPI()
             app.include_router(interaction.router)
             app.include_router(trace.router)
+            app.include_router(release.router)
             app.include_router(outcome.router)
             app.dependency_overrides[get_session] = session_dependency
             app.include_router(ingestion_keys.router)
@@ -405,3 +406,114 @@ async def test_ingestion_key_lifecycle(timeline_db_client):
     assert revoked.status_code == 204
     client.headers["X-Attica-API-Key"] = first["api_key"]
     assert (await client.post(f"{base}/outcomes", json=event)).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_batch_replay_in_new_order_deduplicates_interactions_and_outbox(timeline_db_client):
+    client, tenant, _, sessions = timeline_db_client
+    path = f"/tenants/{tenant}/interactions/batch"
+    payload = dict(
+        occurred_at="2026-11-25T12:30:00Z", model="example", status="success",
+        latency_ms=50, input_token=3, output_token=2,
+    )
+    a, b, c, d = [
+        {"idempotency_key": key, "interaction": payload}
+        for key in ("attempt-a", "attempt-b", "attempt-c", "attempt-d")
+    ]
+
+    first = await client.post(path, json={"items": [a, b, c]})
+    assert first.status_code == 201, first.text
+    assert [(r["index"], r["status"]) for r in first.json()["result"]] == [
+        (0, "created"), (1, "created"), (2, "created"),
+    ]
+
+    # The client can retry using the original events alone, even if it lost the response.
+    retry = await client.post(path, json={"items": [c, a, d]})
+    assert retry.status_code == 201, retry.text
+
+    async with sessions() as db:
+        stored = dict((await db.execute(
+            select(Interaction.idempotency_key, Interaction.id).where(Interaction.tenant_id == tenant)
+        )).all())
+        outbox_ids = (await db.scalars(
+            select(OutboxEvent.interaction_id).where(OutboxEvent.tenant_id == tenant)
+        )).all()
+
+    assert set(stored) == {item["idempotency_key"] for item in (a, b, c, d)}
+    assert sorted(outbox_ids) == sorted(stored.values())
+    assert retry.json()["result"] == [
+        {"index": index, "interaction_id": str(stored[item["idempotency_key"]]), "status": status}
+        for index, (item, status) in enumerate([(c, "duplicate"), (a, "duplicate"), (d, "created")])
+    ]
+
+
+@pytest.mark.anyio
+async def test_release_comparison_and_failure_drilldown(timeline_db_client):
+    from datetime import datetime, timedelta, timezone
+
+    client, tenant, other, sessions = timeline_db_client
+    start = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    async with sessions.begin() as db:
+        user_id = (await db.scalars(select(User.id))).one()
+
+        def call(trace, release, *, at=start, status="success", owner=tenant,
+                 feature="chat", environment="prod"):
+            db.add(Interaction(
+                tenant_id=owner, created_by=user_id, trace_id=trace, release=release,
+                feature=feature, environment=environment, occurred_at=at, status=status,
+                idempotency_key=str(uuid4()), payload_hash="0" * 64, model="example",
+                input_token=100, output_token=20, latency_ms=12,
+            ))
+
+        for i in range(10):
+            call(f"a{i}", "A")
+            call(f"b{i}", "B", status="error" if i < 3 else "success")
+            call(f"b{i}", "B", at=end if i == 0 else start + timedelta(seconds=1))
+        call("b4", "B", owner=other, status="error")
+        call("before", "B", at=start - timedelta(seconds=1))
+        call("before", "B", status="error")
+        call("at-end", "B", at=end, status="error")
+        call("mixed", "A", status="error")
+        call("mixed", "B")
+        call("other-feature", "B", feature="search", status="error")
+        call("other-env", "B", environment="dev", status="error")
+
+    base = f"/tenants/{tenant}"
+    params = dict(baseline_release="A", candidate_release="B", feature="chat",
+                  environment="prod", start_time=start.isoformat(), end_time=end.isoformat())
+    path = f"{base}/releases/compare"
+    response = await client.get(path, params=params)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    baseline = dict(trace_count=10, call_count=10, traces_with_failed_calls=0,
+                    failed_call_trace_rate=0, calls_per_trace=1, input_tokens_per_trace=100,
+                    output_tokens_per_trace=20, input_tokens_per_call=100, output_tokens_per_call=20)
+    assert result["baseline"] == baseline
+    assert result["candidate"] == dict(baseline, call_count=20, traces_with_failed_calls=3,
+                                       failed_call_trace_rate=0.3, calls_per_trace=2,
+                                       input_tokens_per_trace=200, output_tokens_per_trace=40)
+    assert result["change"] == dict(trace_count=0, call_count=10, traces_with_failed_calls=3,
+                                    failed_call_trace_rate_pp=30, calls_per_trace=1, input_tokens_per_trace=100,
+                                    output_tokens_per_trace=20, input_tokens_per_call=0, output_tokens_per_call=0)
+    assert result["excluded_ambiguous_traces"] == 1
+
+    async def failures(comparison):
+        response = await client.get(f"{base}/traces", params=comparison["candidate_drilldown"])
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == comparison["candidate"]["traces_with_failed_calls"]
+        return {trace["trace_id"] for trace in page["traces"]}
+
+    assert await failures(result) == {"b0", "b1", "b2"}
+    async with sessions.begin() as db:
+        call("late-error", "B")
+        call("late-error", "B", at=end + timedelta(seconds=1), status="error")
+
+    response = await client.get(path, params=dict(params, baseline_release="missing"))
+    assert response.status_code == 200, response.text
+    empty = response.json()
+    counts = {"trace_count", "call_count", "traces_with_failed_calls"}
+    assert empty["baseline"] == {k: 0 if k in counts else None for k in baseline}
+    assert empty["change"]["failed_call_trace_rate_pp"] is None
+    assert await failures(empty) == {"b0", "b1", "b2", "late-error"}
