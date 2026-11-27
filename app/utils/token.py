@@ -17,7 +17,7 @@ def create_access_token(
     lifetime = (
         expires_delta
         if expires_delta is not None
-        else timedelta(minutes=settings.acces_token_expiry_mins)
+        else timedelta(minutes=settings.access_token_expiry_mins)
     )
     payload = {
         "sub": subject,

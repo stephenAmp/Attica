@@ -8,11 +8,12 @@ from app.schema.user import UserCreate, UserRead
 from app.services.auth import AuthService
 from app.storage.postgres import get_session
 from app.api.dependencies import RateLimiter
+from app.api.edition import require_cloud_edition
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 limiter = RateLimiter(100, 60)
 
-@router.post("/register",  response_model=UserRead, dependencies=[Depends(limiter)], status_code=status.HTTP_201_CREATED)
+@router.post("/register",  response_model=UserRead, dependencies=[Depends(require_cloud_edition), Depends(limiter)], status_code=status.HTTP_201_CREATED)
 async def register(
     data: UserCreate,
     session: Annotated[AsyncSession, Depends(get_session)],

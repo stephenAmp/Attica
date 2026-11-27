@@ -7,13 +7,14 @@ from app.api.dependencies import get_current_user, get_tenant_membership, Tenant
 from app.models.general import User, UserTenants
 from app.schema.tenant import TenantCreate, TenantRead
 from app.services.tenant import TenantService
+from app.api.edition import require_cloud_edition
 from app.storage.postgres import get_session
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 limiter = TenantSpecificRateLimiter(100, 60)
 generic_rate_limiter = RateLimiter(100, 60)
 
-@router.post("", response_model=TenantRead, dependencies=[Depends(generic_rate_limiter)], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TenantRead, dependencies=[Depends(require_cloud_edition), Depends(generic_rate_limiter)], status_code=status.HTTP_201_CREATED)
 async def create_tenant(
     data: TenantCreate,
     current_user: Annotated[User, Depends(get_current_user)],

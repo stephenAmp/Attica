@@ -176,3 +176,13 @@ class ProcessedEvent(Base):
     release: Mapped[str | None] = mapped_column(String(50), nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class InstanceSettings(Base):
+    __tablename__ = "instance_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_instance_settings_singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key = True, autoincrement = False, default = 1)
+    workspace_id: Mapped[uuid_lib.UUID | None] = mapped_column(Uuid(as_uuid = True), ForeignKey("tenant.id", ondelete = "RESTRICT"), nullable = True)
+    initialized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone = True), nullable = True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone = True), nullable = False, default=lambda: datetime.now(timezone.utc))
